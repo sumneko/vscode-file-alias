@@ -23,29 +23,18 @@
 	"contributes": {
 		"configuration": {
 			"type": "object",
-			"title": "Example configuration",
+			"title": "File Alias",
 			"properties": {
-				"languageServerExample.maxNumberOfProblems": {
+				"file-alias.listFile": {
 					"scope": "resource",
-					"type": "number",
-					"default": 100,
-					"description": "Controls the maximum number of problems produced by the server."
-				},
-				"languageServerExample.trace.server": {
-					"scope": "window",
 					"type": "string",
-					"enum": [
-						"off",
-						"messages",
-						"verbose"
-					],
-					"default": "off",
-					"description": "Traces the communication between VS Code and the language server."
+					"description": "Path of `listfile.json`."
 				}
 			}
 		}
 	},
 	"devDependencies": {
+		"@types/node": "^16.10.3",
 		"@types/vscode": "^1.52.0"
 	}
 }
