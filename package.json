@@ -29,6 +29,11 @@
 					"scope": "resource",
 					"type": "string",
 					"description": "Path of `listfile.json`."
+				},
+				"file-alias.contentMatch": {
+					"scope": "resource",
+					"type": "string",
+					"description": "Content pattern."
 				}
 			}
 		}

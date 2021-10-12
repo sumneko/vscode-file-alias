@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { EventEmitter, FileDecoration, RelativePattern, Uri, window, workspace } from 'vscode';
+import { ConfigurationChangeEvent, EventEmitter, FileDecoration, RelativePattern, Uri, window, workspace } from 'vscode';
 
 // hack VSCode
 // @ts-ignore
@@ -7,101 +7,120 @@ FileDecoration.validate = () => {
     return true;
 }
 
+function convertMapKeysToArray<T>(map: Map<T, any>, array: Array<T> = []): Array<T> {
+    let mark = {};
+    for (const value of array) {
+        mark[value.toString()] = true;
+    }
+    for (const value of map.keys()) {
+        if (!mark[value.toString()]) {
+            mark[value.toString()] = true;
+            array.push(value);
+        }
+    }
+    return array
+}
+
 class FileAlias {
-    private listFileMap: Map<string, Map<string, string>>;
-    onChange: EventEmitter<undefined | Uri | Uri[]>;
+    private lfMap: Map<Uri, string>;
+    private uri:   Uri;
+    private lfUri: Uri;
+    changeEmitter: EventEmitter<undefined | Uri | Uri[]>;
 
-    async refreshAlians(...maps: Map<string, string>[]) {
-        let uris: Uri[] = [];
-        let mark = {};
-        for (const map of maps) {
-            for (const path of map.keys()) {
-                let uri = Uri.parse(path);
-                if (!mark[uri.toString()]) {
-                    mark[uri.toString()] = true;
-                    uris.push(uri);
-                }
-            }
-        }
-        this.onChange.fire(uris);
+    getAliasByListFile(uri: Uri): string {
+        return this.lfMap.get(uri);
     }
 
-    async watchListFile(wsUri: Uri, listFileUri: Uri) {
-        let updateMap = async () => {
-            this.listFileMap.delete(wsUri.toString());
-            let listFile: string = (await workspace.fs.readFile(listFileUri))?.toString();
-            if (!listFile) {
-                return;
-            }
-            let json: Object;
-            try {
-                json = JSON.parse(listFile);
-            } catch (e) {
-                window.showErrorMessage((e as Error).message.replace('JSON', '`' + listFileUri.fsPath + '`'))
-            }
-            if (typeof json != 'object' || !json) {
-                return;
-            }
-            let map: Map<string, string> = new Map();
-            for (const key in json) {
-                let uri = Uri.file(path.resolve(wsUri.fsPath, key))?.toString();
-                if (typeof uri == 'string') {
-                    map.set(uri, json[key]);
-                }
-            }
-            this.listFileMap.set(wsUri.toString(), map);
-        }
-        let loadListFile = async () => {
-            let oldMap = this.listFileMap.get(wsUri.toString());
-            await updateMap();
-            let newMap = this.listFileMap.get(wsUri.toString());
-            this.refreshAlians(oldMap, newMap);
-        }
-
-        let watcher = workspace.createFileSystemWatcher(new RelativePattern(listFileUri, '*'));
-        watcher.onDidChange(loadListFile);
-        watcher.onDidCreate(loadListFile);
-        watcher.onDidDelete(loadListFile);
-        await loadListFile();
-    }
-
-    getAlias(uri: Uri): string {
-        let map = this.listFileMap.get(workspace.getWorkspaceFolder(uri)?.uri?.toString());
-        if (!map) {
-            return undefined;
-        }
-        return map.get(uri.toString());
+    getAliasByContent(uri: Uri): string {
+        return undefined;
     }
 
     getDecoration(uri: Uri): FileDecoration {
-        let alias = this.getAlias(uri);
+        let alias = this.getAliasByListFile(uri)
+                 || this.getAliasByContent(uri);
         if (!alias) {
             return undefined;
         }
         return new FileDecoration(alias);
     }
 
-    constructor() {
-        this.listFileMap = new Map();
-        this.onChange    = new EventEmitter();
+    async updateMap() {
+        let listFile: string = (await workspace.fs.readFile(this.lfUri))?.toString();
+        if (!listFile) {
+            return;
+        }
+        let json: Object;
+        try {
+            json = JSON.parse(listFile);
+        } catch (e) {
+            window.showErrorMessage((e as Error).message.replace('JSON', '`' + this.lfUri.fsPath + '`'))
+        }
+        if (typeof json != 'object' || !json) {
+            return;
+        }
+        for (const key in json) {
+            let uri = Uri.file(path.resolve(this.uri.fsPath, key));
+            if (uri) {
+                this.lfMap.set(uri, json[key]);
+            }
+        }
+    }
+
+    async refreshListFile() {
+        let uris = convertMapKeysToArray(this.lfMap);
+        this.lfMap.clear();
+        try {
+            await this.updateMap();
+        } catch {};
+        uris = convertMapKeysToArray(this.lfMap, uris);
+        this.changeEmitter.fire(uris);
+    }
+
+    fileWatcher(uri: Uri) {
+        this.changeEmitter.fire(uri);
+        if (uri == this.lfUri) {
+            this.refreshListFile();
+        }
+    }
+
+    async initWorkSpace() {
+        let listFile: string = workspace.getConfiguration('file-alias', this.uri).get('listFile', '');
+        this.lfUri = Uri.file(path.resolve(this.uri.fsPath, listFile));
+
+        let watcher = workspace.createFileSystemWatcher(new RelativePattern(this.uri, '**/*'));
+        watcher.onDidChange((uri) => { this.fileWatcher(uri) });
+        watcher.onDidCreate((uri) => { this.fileWatcher(uri) });
+        watcher.onDidDelete((uri) => { this.fileWatcher(uri) });
+
+        workspace.onDidChangeConfiguration((e: ConfigurationChangeEvent) => {
+            if (e.affectsConfiguration('file-alias', this.uri)) {
+                this.refreshListFile();
+            }
+        })
+
+        window.registerFileDecorationProvider({
+            onDidChangeFileDecorations: this.changeEmitter.event,
+            provideFileDecoration:      (uri: Uri): FileDecoration => { return this.getDecoration(uri) },
+        })
+
+        await this.refreshListFile();
+    }
+
+    constructor(uri: Uri) {
+        this.uri      = uri;
+        this.lfMap    = new Map();
+        this.changeEmitter = new EventEmitter();
     }
 }
 
 export async function activate() {
-    let config    = workspace.getConfiguration('file-alias');
-    let fileAlias = new FileAlias();
-
-    if (workspace.workspaceFolders) {
-        let listFile: string = config.get('listFile');
-        for (let index = 0; index < workspace.workspaceFolders.length; index++) {
-            const ws = workspace.workspaceFolders[index];
-            let wsListFile = path.resolve(ws.uri.fsPath, listFile);
-            await fileAlias.watchListFile(ws.uri, Uri.file(wsListFile));
-        }
+    if (!workspace.workspaceFolders) {
+        return;
     }
 
-    window.registerFileDecorationProvider({
-        onDidChangeFileDecorations: fileAlias.onChange.event,
-        provideFileDecoration:      (uri: Uri): FileDecoration => { return fileAlias.getDecoration(uri) },
-    })
+    for (let index = 0; index < workspace.workspaceFolders.length; index++) {
+        const ws = workspace.workspaceFolders[index];
+        let fileAlias = new FileAlias(ws.uri);
+        await fileAlias.initWorkSpace();
+    }
 }
