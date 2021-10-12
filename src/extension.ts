@@ -73,6 +73,14 @@ class FileAlias {
         return map.get(uri.toString());
     }
 
+    getDecoration(uri: Uri): FileDecoration {
+        let alias = this.getAlias(uri);
+        if (!alias) {
+            return undefined;
+        }
+        return new FileDecoration(alias);
+    }
+
     constructor() {
         this.listFileMap = new Map();
         this.onChange    = new EventEmitter();
@@ -94,12 +102,6 @@ export async function activate() {
 
     window.registerFileDecorationProvider({
         onDidChangeFileDecorations: fileAlias.onChange.event,
-        provideFileDecoration: async (uri: Uri): Promise<FileDecoration> => {
-            let alias = fileAlias.getAlias(uri)
-            if (!alias) {
-                return
-            }
-            return new FileDecoration(alias);
-        },
+        provideFileDecoration:      (uri: Uri): FileDecoration => { return fileAlias.getDecoration(uri) },
     })
 }
