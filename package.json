@@ -14,7 +14,7 @@
 		"multi-root ready"
 	],
 	"engines": {
-		"vscode": "^1.43.0"
+		"vscode": "^1.52.0"
 	},
 	"activationEvents": [
 		"onLanguage:plaintext"
@@ -45,19 +45,7 @@
 			}
 		}
 	},
-	"scripts": {
-		"vscode:prepublish": "npm run compile",
-		"compile": "tsc -b",
-		"watch": "tsc -b -w",
-		"postinstall": "cd client && npm install && cd ../server && npm install && cd ..",
-		"test": "sh ./scripts/e2e.sh"
-	},
 	"devDependencies": {
-		"@types/mocha": "^8.0.3",
-		"mocha": "^8.1.1",
-		"@types/node": "^12.12.0",
-		"eslint": "^6.4.0",
-		"@typescript-eslint/parser": "^2.3.0",
-		"typescript": "^4.0.2"
+		"@types/vscode": "^1.52.0"
 	}
 }
