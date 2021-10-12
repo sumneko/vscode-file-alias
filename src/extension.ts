@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { FileDecoration, RelativePattern, Uri, window, workspace } from 'vscode';
+import { EventEmitter, FileDecoration, RelativePattern, Uri, window, workspace } from 'vscode';
 
 // hack VSCode
 // @ts-ignore
@@ -9,9 +9,25 @@ FileDecoration.validate = () => {
 
 class FileAlias {
     private listFileMap: Map<string, Map<string, string>>;
+    onChange: EventEmitter<undefined | Uri | Uri[]>;
+
+    async refreshAlians(...maps: Map<string, string>[]) {
+        let uris: Uri[] = [];
+        let mark = {};
+        for (const map of maps) {
+            for (const path of map.keys()) {
+                let uri = Uri.parse(path);
+                if (!mark[uri.toString()]) {
+                    mark[uri.toString()] = true;
+                    uris.push(uri);
+                }
+            }
+        }
+        this.onChange.fire(uris);
+    }
 
     async watchListFile(wsUri: Uri, listFileUri: Uri) {
-        let loadListFile = async () => {
+        let updateMap = async () => {
             this.listFileMap.delete(wsUri.toString());
             let listFile: string = (await workspace.fs.readFile(listFileUri))?.toString();
             if (!listFile) {
@@ -35,6 +51,12 @@ class FileAlias {
             }
             this.listFileMap.set(wsUri.toString(), map);
         }
+        let loadListFile = async () => {
+            let oldMap = this.listFileMap.get(wsUri.toString());
+            await updateMap();
+            let newMap = this.listFileMap.get(wsUri.toString());
+            this.refreshAlians(oldMap, newMap);
+        }
 
         let watcher = workspace.createFileSystemWatcher(new RelativePattern(listFileUri, '*'));
         watcher.onDidChange(loadListFile);
@@ -43,8 +65,8 @@ class FileAlias {
         await loadListFile();
     }
 
-    async getAlias(uri: Uri): Promise<string> {
-        let map = this.listFileMap.get(workspace.getWorkspaceFolder(uri).uri.toString());
+    getAlias(uri: Uri): string {
+        let map = this.listFileMap.get(workspace.getWorkspaceFolder(uri)?.uri?.toString());
         if (!map) {
             return undefined;
         }
@@ -53,6 +75,7 @@ class FileAlias {
 
     constructor() {
         this.listFileMap = new Map();
+        this.onChange    = new EventEmitter();
     }
 }
 
@@ -70,8 +93,9 @@ export async function activate() {
     }
 
     window.registerFileDecorationProvider({
+        onDidChangeFileDecorations: fileAlias.onChange.event,
         provideFileDecoration: async (uri: Uri): Promise<FileDecoration> => {
-            let alias = await fileAlias.getAlias(uri)
+            let alias = fileAlias.getAlias(uri)
             if (!alias) {
                 return
             }
