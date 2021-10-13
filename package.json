@@ -1,5 +1,6 @@
 {
 	"name": "file-alias",
+	"displayName": "File Alias",
 	"description": "Add a display name to the file",
 	"author": "sumneko",
 	"license": "MIT",
