@@ -7,57 +7,76 @@ FileDecoration.validate = () => {
     return true;
 }
 
-function convertMapKeysToArray<T>(map: Map<T, any>, array: Array<T> = []): Array<T> {
-    let mark = {};
-    for (const value of array) {
-        mark[value.toString()] = true;
-    }
-    for (const value of map.keys()) {
-        if (!mark[value.toString()]) {
-            mark[value.toString()] = true;
-            array.push(value);
-        }
-    }
-    return array
-}
-
 class FileAlias {
-    private lfMap: Map<string, string>;
-    private uri:   Uri;
-    private lfUri: Uri;
-    changeEmitter: EventEmitter<undefined | Uri | Uri[]>;
+    private lfMap:   Map<string, string>;
+    private visited: Map<string, boolean>;
+    private uri:     Uri;
+    private lfUri:   Uri;
+    changeEmitter:   EventEmitter<undefined | Uri | Uri[]>;
 
-    getAliasByListFile(uri: Uri): string {
+    async getAliasByListFile(uri: Uri): Promise<string> {
         return this.lfMap.get(uri.toString());
     }
 
-    getAliasByContent(uri: Uri): string {
-        return undefined;
+    async getAliasByContent(uri: Uri): Promise<string> {
+        let pattern: string = workspace.getConfiguration('file-alias', this.uri).get('contentMatch');
+        if (!pattern || pattern == '') { return undefined };
+
+        let content: string;
+        try {
+            content = (await workspace.fs.readFile(uri))?.toString();
+        } catch {};
+        if (!content) { return undefined };
+
+        let re = new RegExp(pattern);
+        if (!re) { return undefined };
+
+        let matchs = content.match(re);
+        let name: string = matchs?.[1];
+
+        return name;
     }
 
-    getDecoration(uri: Uri): FileDecoration {
-        let alias = this.getAliasByListFile(uri)
-                 || this.getAliasByContent(uri);
-        if (!alias) {
-            return undefined;
-        }
+    async getDecoration(uri: Uri): Promise<FileDecoration> {
+        this.visited.set(uri.toString(), true);
+        let alias = await this.getAliasByListFile(uri)
+                 || await this.getAliasByContent(uri);
+        if (!alias) { return undefined };
         return new FileDecoration(alias);
     }
 
-    async updateMap() {
-        let listFile: string = (await workspace.fs.readFile(this.lfUri))?.toString();
-        if (!listFile) {
-            return;
+    async refreshVisited() {
+        let uris: Uri[] = [];
+        for (const suri of this.visited.keys()) {
+            uris.push(Uri.parse(suri));
         }
+        this.visited.clear();
+        this.changeEmitter.fire(uris);
+    }
+
+    async refreshListFile() {
+        this.lfMap.clear();
+
+        let listFilePath: string = workspace.getConfiguration('file-alias', this.uri).get('listFile');
+        if (!listFilePath) { return };
+        this.lfUri = Uri.file(path.resolve(this.uri.fsPath, listFilePath));
+
+        let listFile: string;
+        try {
+            listFile = (await workspace.fs.readFile(this.lfUri))?.toString();
+        } catch (e) {
+            window.showErrorMessage((e as Error).message);
+        };
+        if (!listFile) { return };
+
         let json: Object;
         try {
             json = JSON.parse(listFile);
         } catch (e) {
             window.showErrorMessage((e as Error).message.replace('JSON', '`' + this.lfUri.fsPath + '`'))
         }
-        if (typeof json != 'object' || !json) {
-            return;
-        }
+
+        if (typeof json != 'object' || !json) { return };
         for (const key in json) {
             let uri = Uri.file(path.resolve(this.uri.fsPath, key));
             if (uri) {
@@ -66,60 +85,45 @@ class FileAlias {
         }
     }
 
-    async refreshListFile() {
-        let listFile: string = workspace.getConfiguration('file-alias', this.uri).get('listFile', '');
-        this.lfUri = Uri.file(path.resolve(this.uri.fsPath, listFile));
-        let array = convertMapKeysToArray(this.lfMap);
-        this.lfMap.clear();
-        try {
-            await this.updateMap();
-        } catch {};
-        array = convertMapKeysToArray(this.lfMap, array);
-        let uris: Uri[] = [];
-        array.forEach(element => {
-            uris.push(Uri.parse(element));
-        });
-        this.changeEmitter.fire(uris);
-    }
-
-    fileWatcher(uri: Uri) {
+    async fileWatcher(uri: Uri) {
         this.changeEmitter.fire(uri);
-        if (uri.toString() == this.lfUri.toString()) {
-            this.refreshListFile();
+        if (uri.toString() == this.lfUri?.toString()) {
+            await this.refreshListFile();
+            this.refreshVisited();
         }
     }
 
     async initWorkSpace() {
+        await this.refreshListFile();
+
         let watcher = workspace.createFileSystemWatcher(new RelativePattern(this.uri, '**/*'));
         watcher.onDidChange(this.fileWatcher, this);
         watcher.onDidCreate(this.fileWatcher, this);
         watcher.onDidDelete(this.fileWatcher, this);
 
-        workspace.onDidChangeConfiguration((e: ConfigurationChangeEvent) => {
+        workspace.onDidChangeConfiguration(async (e: ConfigurationChangeEvent) => {
             if (e.affectsConfiguration('file-alias', this.uri)) {
-                this.refreshListFile();
+                await this.refreshListFile();
+                this.refreshVisited();
             }
         })
 
         window.registerFileDecorationProvider({
             onDidChangeFileDecorations: this.changeEmitter.event,
-            provideFileDecoration:      (uri: Uri): FileDecoration => { return this.getDecoration(uri) },
+            provideFileDecoration:      async (uri: Uri): Promise<FileDecoration> => { return await this.getDecoration(uri) },
         })
-
-        await this.refreshListFile();
     }
 
     constructor(uri: Uri) {
-        this.uri      = uri;
-        this.lfMap    = new Map();
+        this.uri           = uri;
+        this.lfMap         = new Map();
+        this.visited       = new Map();
         this.changeEmitter = new EventEmitter();
     }
 }
 
 export async function activate() {
-    if (!workspace.workspaceFolders) {
-        return;
-    }
+    if (!workspace.workspaceFolders) { return };
 
     for (let index = 0; index < workspace.workspaceFolders.length; index++) {
         const ws = workspace.workspaceFolders[index];
