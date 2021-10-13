@@ -1,10 +1,15 @@
 import * as path from 'path';
 import { ConfigurationChangeEvent, EventEmitter, FileDecoration, RelativePattern, Uri, window, workspace } from 'vscode';
 
-// hack VSCode
+// hack VSCode: src\vs\workbench\api\common\extHostTypes.ts:2913
 // @ts-ignore
-FileDecoration.validate = () => {
-    return true;
+FileDecoration.validate = (d: FileDecoration): void => {
+    if (d.badge && d.badge.length !== 1 && d.badge.length !== 2) {
+        //throw new Error(`The 'badge'-property must be undefined or a short character`);
+    }
+    if (!d.color && !d.badge && !d.tooltip) {
+        throw new Error(`The decoration is empty`);
+    }
 }
 
 class FileAlias {
