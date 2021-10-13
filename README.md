@@ -42,3 +42,7 @@ Format the matched content
 `"file-alias.contentMatch": "Compile (\\w+)"`
 
 `"file-alias.contentMatchFormat": "<{1}>"`
+
+# Note
+
+VSCode's public API cannot achieve this feature, so this extension [did some hacks](https://github.com/sumneko/vscode-file-alias/blob/5b7b9841bc0f359ad1977959de8032e2d519eaaa/src/extension.ts#L8)
