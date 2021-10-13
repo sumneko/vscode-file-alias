@@ -9,7 +9,9 @@
 		"url": "https://github.com/sumneko/vscode-file-alias"
 	},
 	"publisher": "sumneko",
-	"categories": [],
+	"categories": [
+		"Other"
+	],
 	"keywords": [
 		"FileName",
 		"Alias",
@@ -35,7 +37,13 @@
 				"file-alias.contentMatch": {
 					"scope": "resource",
 					"type": "string",
-					"description": "Content pattern."
+					"description": "Content match pattern."
+				},
+				"file-alias.contentMatchFormat": {
+					"scope": "resource",
+					"type": "string",
+					"default": "{1}",
+					"description": "Matched formatting."
 				}
 			}
 		}
