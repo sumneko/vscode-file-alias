@@ -63,7 +63,7 @@ class FileAlias {
         this.lfMap.clear();
 
         let listFilePath: string = workspace.getConfiguration('file-alias', this.uri).get('listFile');
-        if (!listFilePath) { return };
+        if (!listFilePath || listFilePath == '') { return };
         this.lfUri = Uri.file(path.resolve(this.uri.fsPath, listFilePath));
 
         let listFile: string;
