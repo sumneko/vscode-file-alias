@@ -37,7 +37,17 @@ class FileAlias {
         if (!re) { return undefined };
 
         let matchs = content.match(re);
-        let name: string = matchs?.[1];
+
+        let name: string;
+        let format: string = workspace.getConfiguration('file-alias', this.uri).get('contentMatchFormat', '');
+        if (format != '') {
+            name = format.replace(/{(\d+)}/g, (_, match) => {
+                return matchs[match];
+            })
+        } else {
+            name = matchs?.[1];
+        }
+        if (!name) { return undefined };
 
         return name;
     }
