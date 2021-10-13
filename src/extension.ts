@@ -22,13 +22,13 @@ function convertMapKeysToArray<T>(map: Map<T, any>, array: Array<T> = []): Array
 }
 
 class FileAlias {
-    private lfMap: Map<Uri, string>;
+    private lfMap: Map<string, string>;
     private uri:   Uri;
     private lfUri: Uri;
     changeEmitter: EventEmitter<undefined | Uri | Uri[]>;
 
     getAliasByListFile(uri: Uri): string {
-        return this.lfMap.get(uri);
+        return this.lfMap.get(uri.toString());
     }
 
     getAliasByContent(uri: Uri): string {
@@ -61,36 +61,39 @@ class FileAlias {
         for (const key in json) {
             let uri = Uri.file(path.resolve(this.uri.fsPath, key));
             if (uri) {
-                this.lfMap.set(uri, json[key]);
+                this.lfMap.set(uri.toString(), json[key]);
             }
         }
     }
 
     async refreshListFile() {
-        let uris = convertMapKeysToArray(this.lfMap);
+        let listFile: string = workspace.getConfiguration('file-alias', this.uri).get('listFile', '');
+        this.lfUri = Uri.file(path.resolve(this.uri.fsPath, listFile));
+        let array = convertMapKeysToArray(this.lfMap);
         this.lfMap.clear();
         try {
             await this.updateMap();
         } catch {};
-        uris = convertMapKeysToArray(this.lfMap, uris);
+        array = convertMapKeysToArray(this.lfMap, array);
+        let uris: Uri[] = [];
+        array.forEach(element => {
+            uris.push(Uri.parse(element));
+        });
         this.changeEmitter.fire(uris);
     }
 
     fileWatcher(uri: Uri) {
         this.changeEmitter.fire(uri);
-        if (uri == this.lfUri) {
+        if (uri.toString() == this.lfUri.toString()) {
             this.refreshListFile();
         }
     }
 
     async initWorkSpace() {
-        let listFile: string = workspace.getConfiguration('file-alias', this.uri).get('listFile', '');
-        this.lfUri = Uri.file(path.resolve(this.uri.fsPath, listFile));
-
         let watcher = workspace.createFileSystemWatcher(new RelativePattern(this.uri, '**/*'));
-        watcher.onDidChange((uri) => { this.fileWatcher(uri) });
-        watcher.onDidCreate((uri) => { this.fileWatcher(uri) });
-        watcher.onDidDelete((uri) => { this.fileWatcher(uri) });
+        watcher.onDidChange(this.fileWatcher, this);
+        watcher.onDidCreate(this.fileWatcher, this);
+        watcher.onDidDelete(this.fileWatcher, this);
 
         workspace.onDidChangeConfiguration((e: ConfigurationChangeEvent) => {
             if (e.affectsConfiguration('file-alias', this.uri)) {
